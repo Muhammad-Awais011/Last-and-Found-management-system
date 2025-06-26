@@ -24,6 +24,7 @@ class Database {
 function setupDatabase() {
     $database = new Database();
     $db = $database->getConnection();
+    
     // Create users table
     $query = "CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -36,6 +37,7 @@ function setupDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )";
     $db->exec($query);
+    
     // Create items table
     $query = "CREATE TABLE IF NOT EXISTS items (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -53,6 +55,7 @@ function setupDatabase() {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )";
     $db->exec($query);
+    
     // Create matches table
     $query = "CREATE TABLE IF NOT EXISTS matches (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -64,14 +67,59 @@ function setupDatabase() {
         FOREIGN KEY (found_item_id) REFERENCES items(id) ON DELETE CASCADE
     )";
     $db->exec($query);
+    
+    // Create notifications table
+    $query = "CREATE TABLE IF NOT EXISTS notifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT,
+        title VARCHAR(200) NOT NULL,
+        message TEXT NOT NULL,
+        type ENUM('item_reported', 'status_updated', 'system') DEFAULT 'item_reported',
+        related_item_id INT,
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (related_item_id) REFERENCES items(id) ON DELETE CASCADE
+    )";
+    $db->exec($query);
+    
     // Create admin user if not exists
     $query = "SELECT COUNT(*) FROM users WHERE role = 'admin'";
     $stmt = $db->prepare($query);
     $stmt->execute();
+    
     if ($stmt->fetchColumn() == 0) {
         $query = "INSERT INTO users (username, email, password, full_name, role) 
                   VALUES ('admin', 'admin@lostfound.com', ?, 'System Administrator', 'admin')";
         $stmt = $db->prepare($query);
         $stmt->execute([password_hash('admin123', PASSWORD_DEFAULT)]);
+    }
+}
+
+// Function to ensure notifications table exists (for existing databases)
+function ensureNotificationsTable() {
+    $database = new Database();
+    $db = $database->getConnection();
+    
+    // Check if notifications table exists
+    $query = "SHOW TABLES LIKE 'notifications'";
+    $stmt = $db->prepare($query);
+    $stmt->execute();
+    
+    if ($stmt->rowCount() == 0) {
+        // Create notifications table if it doesn't exist
+        $query = "CREATE TABLE notifications (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT,
+            title VARCHAR(200) NOT NULL,
+            message TEXT NOT NULL,
+            type ENUM('item_reported', 'status_updated', 'system') DEFAULT 'item_reported',
+            related_item_id INT,
+            is_read BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (related_item_id) REFERENCES items(id) ON DELETE CASCADE
+        )";
+        $db->exec($query);
     }
 }

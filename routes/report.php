@@ -3,8 +3,10 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../functions.php';
 
 redirectIfNotLoggedIn();
+
 $error = '';
 $success = '';
+
 if ($_POST) {
     $title = sanitizeInput($_POST['title']);
     $description = sanitizeInput($_POST['description']);
@@ -13,18 +15,27 @@ if ($_POST) {
     $location = sanitizeInput($_POST['location']);
     $date_lost_found = sanitizeInput($_POST['date_lost_found']);
     $contact_info = sanitizeInput($_POST['contact_info']);
+    
     if (empty($title) || empty($description) || empty($category) || empty($type) || empty($location) || empty($date_lost_found)) {
         $error = 'Please fill in all required fields.';
     } else {
         $database = new Database();
         $db = $database->getConnection();
+        
         $image_path = null;
         if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
             $image_path = handleImageUpload($_FILES['image']);
         }
+        
         $query = "INSERT INTO items (user_id, title, description, category, type, location, date_lost_found, contact_info, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $db->prepare($query);
+        
         if ($stmt->execute([$_SESSION['user_id'], $title, $description, $category, $type, $location, $date_lost_found, $contact_info, $image_path])) {
+            $item_id = $db->lastInsertId();
+            
+            // Create notification for admins
+            notifyAdminsOfNewItem($item_id, $title, $type, $_SESSION['full_name']);
+            
             $success = 'Item reported successfully!';
             $_POST = array();
         } else {
@@ -32,19 +43,24 @@ if ($_POST) {
         }
     }
 }
+
 echo '<div class="content-card">
         <h2>Report Lost/Found Item</h2>';
+
 if ($error) {
     echo '<div class="alert alert-error">' . $error . '</div>';
 }
+
 if ($success) {
     echo '<div class="alert alert-success">' . $success . '</div>';
 }
+
 echo '<form method="POST" enctype="multipart/form-data">
         <div class="form-group">
             <label>Title: *</label>
             <input type="text" name="title" required value="' . ($_POST['title'] ?? '') . '">
         </div>
+        
         <div class="form-group">
             <label>Type: *</label>
             <select name="type" required>
@@ -53,6 +69,7 @@ echo '<form method="POST" enctype="multipart/form-data">
                 <option value="found"' . (($_POST['type'] ?? '') === 'found' ? ' selected' : '') . '>Found Item</option>
             </select>
         </div>
+        
         <div class="form-group">
             <label>Category: *</label>
             <select name="category" required>
@@ -69,27 +86,33 @@ echo '<form method="POST" enctype="multipart/form-data">
                 <option value="Other"' . (($_POST['category'] ?? '') === 'Other' ? ' selected' : '') . '>Other</option>
             </select>
         </div>
+        
         <div class="form-group">
             <label>Description: *</label>
             <textarea name="description" rows="4" required placeholder="Provide detailed description including color, brand, distinctive features, etc.">' . ($_POST['description'] ?? '') . '</textarea>
         </div>
+        
         <div class="form-group">
             <label>Location: *</label>
             <input type="text" name="location" required placeholder="Where was it lost/found?" value="' . ($_POST['location'] ?? '') . '">
         </div>
+        
         <div class="form-group">
             <label>Date Lost/Found: *</label>
             <input type="date" name="date_lost_found" required value="' . ($_POST['date_lost_found'] ?? '') . '">
         </div>
+        
         <div class="form-group">
             <label>Contact Information:</label>
             <input type="text" name="contact_info" placeholder="Phone number or email (optional)" value="' . ($_POST['contact_info'] ?? '') . '">
         </div>
+        
         <div class="form-group">
             <label>Upload Image:</label>
             <input type="file" name="image" accept="image/*">
             <small style="color: #666;">Supported formats: JPG, PNG, GIF (optional)</small>
         </div>
+        
         <button type="submit" class="btn">Report Item</button>
         <a href="?page=dashboard" class="btn btn-secondary">Cancel</a>
       </form>

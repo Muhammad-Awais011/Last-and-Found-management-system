@@ -6,10 +6,23 @@ if (!isAdmin()) {
     header('Location: ?page=home');
     exit();
 }
+
 $database = new Database();
 $db = $database->getConnection();
-// Handle user management actions
+
+// Handle notification actions
 if ($_POST) {
+    if (isset($_POST['mark_read'])) {
+        $notification_id = (int)$_POST['notification_id'];
+        markNotificationAsRead($notification_id);
+        echo '<div class="alert alert-success">Notification marked as read!</div>';
+    }
+    
+    if (isset($_POST['mark_all_read'])) {
+        markAllNotificationsAsRead();
+        echo '<div class="alert alert-success">All notifications marked as read!</div>';
+    }
+    
     if (isset($_POST['delete_user'])) {
         $user_id = (int)$_POST['user_id'];
         if ($user_id !== $_SESSION['user_id']) {
@@ -19,6 +32,7 @@ if ($_POST) {
             echo '<div class="alert alert-success">User deleted successfully!</div>';
         }
     }
+    
     if (isset($_POST['delete_item'])) {
         $item_id = (int)$_POST['item_id'];
         $query = "DELETE FROM items WHERE id = ?";
@@ -27,6 +41,7 @@ if ($_POST) {
         echo '<div class="alert alert-success">Item deleted successfully!</div>';
     }
 }
+
 // Get statistics
 $query = "SELECT 
             COUNT(*) as total_users,
@@ -36,6 +51,7 @@ $query = "SELECT
 $stmt = $db->prepare($query);
 $stmt->execute();
 $user_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+
 $query = "SELECT 
             COUNT(*) as total_items,
             SUM(CASE WHEN type = 'lost' THEN 1 ELSE 0 END) as lost_items,
@@ -46,8 +62,13 @@ $query = "SELECT
 $stmt = $db->prepare($query);
 $stmt->execute();
 $item_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// Get notification count
+$unread_count = getUnreadNotificationCount();
+
 echo '<div class="content-card">
         <h2>Admin Dashboard</h2>
+        
         <div class="stats">
             <div class="stat-card">
                 <div class="stat-number">' . $user_stats['total_users'] . '</div>
@@ -65,13 +86,81 @@ echo '<div class="content-card">
                 <div class="stat-number">' . $item_stats['active_items'] . '</div>
                 <div class="stat-label">Active Items</div>
             </div>
+            <div class="stat-card" style="background: #ff6b6b; color: white;">
+                <div class="stat-number">' . $unread_count . '</div>
+                <div class="stat-label">Unread Notifications</div>
+            </div>
         </div>
       </div>';
+
+// Notifications Section
+$notifications = getNotifications(null, 20); // Get last 20 notifications
+
+echo '<div class="content-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3>Recent Notifications</h3>
+            <form method="POST" style="display: inline;">
+                <button type="submit" name="mark_all_read" class="btn btn-secondary">Mark All as Read</button>
+            </form>
+        </div>';
+
+if (empty($notifications)) {
+    echo '<p>No notifications found.</p>';
+} else {
+    echo '<div style="max-height: 400px; overflow-y: auto;">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Title</th>
+                        <th>Message</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>';
+    
+    foreach ($notifications as $notification) {
+        $status_class = $notification['is_read'] ? 'status-resolved' : 'status-active';
+        $status_text = $notification['is_read'] ? 'Read' : 'Unread';
+        
+        echo '<tr>
+                <td>' . date('M j, Y g:i A', strtotime($notification['created_at'])) . '</td>
+                <td>' . htmlspecialchars($notification['title']) . '</td>
+                <td>' . htmlspecialchars(substr($notification['message'], 0, 50)) . (strlen($notification['message']) > 50 ? '...' : '') . '</td>
+                <td><span class="item-status status-' . $notification['type'] . '">' . ucfirst(str_replace('_', ' ', $notification['type'])) . '</span></td>
+                <td><span class="item-status ' . $status_class . '">' . $status_text . '</span></td>
+                <td>';
+        
+        if (!$notification['is_read']) {
+            echo '<form method="POST" style="display: inline; margin-right: 0.5rem;">
+                    <input type="hidden" name="notification_id" value="' . $notification['id'] . '">
+                    <button type="submit" name="mark_read" class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Mark Read</button>
+                  </form>';
+        }
+        
+        if ($notification['related_item_id']) {
+            echo '<a href="?page=item&id=' . $notification['related_item_id'] . '" class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">View Item</a>';
+        }
+        
+        echo '</td>
+              </tr>';
+    }
+    
+    echo '</tbody>
+            </table>
+          </div>';
+}
+
+echo '</div>';
+
 // Users Management
 $query = "SELECT * FROM users ORDER BY created_at DESC";
 $stmt = $db->prepare($query);
 $stmt->execute();
 $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 echo '<div class="content-card">
         <h3>User Management</h3>
         <div style="overflow-x: auto;">
@@ -88,6 +177,7 @@ echo '<div class="content-card">
                     </tr>
                 </thead>
                 <tbody>';
+
 foreach ($users as $user) {
     echo '<tr>
             <td>' . $user['id'] . '</td>
@@ -97,6 +187,7 @@ foreach ($users as $user) {
             <td><span class="item-status status-' . ($user['role'] === 'admin' ? 'resolved' : 'active') . '">' . ucfirst($user['role']) . '</span></td>
             <td>' . date('M j, Y', strtotime($user['created_at'])) . '</td>
             <td>';
+    
     if ($user['id'] !== $_SESSION['user_id'] && $user['role'] !== 'admin') {
         echo '<form method="POST" style="display: inline;" onsubmit="return confirm(\'Are you sure you want to delete this user?\')">
                 <input type="hidden" name="user_id" value="' . $user['id'] . '">
@@ -105,9 +196,16 @@ foreach ($users as $user) {
     } else {
         echo '<span style="color: #666;">Cannot delete</span>';
     }
-    echo '</td></tr>';
+    
+    echo '</td>
+          </tr>';
 }
-echo '</tbody></table></div></div>';
+
+echo '</tbody>
+            </table>
+        </div>
+      </div>';
+
 // Items Management
 $query = "SELECT i.*, u.username, u.full_name 
           FROM items i 
@@ -117,6 +215,7 @@ $query = "SELECT i.*, u.username, u.full_name
 $stmt = $db->prepare($query);
 $stmt->execute();
 $recent_items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 echo '<div class="content-card">
         <h3>Recent Items Management</h3>
         <div style="overflow-x: auto;">
@@ -134,6 +233,7 @@ echo '<div class="content-card">
                     </tr>
                 </thead>
                 <tbody>';
+
 foreach ($recent_items as $item) {
     echo '<tr>
             <td>' . $item['id'] . '</td>
@@ -152,4 +252,8 @@ foreach ($recent_items as $item) {
             </td>
           </tr>';
 }
-echo '</tbody></table></div></div>';
+
+echo '</tbody>
+            </table>
+        </div>
+      </div>';

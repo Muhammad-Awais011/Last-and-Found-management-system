@@ -2,12 +2,24 @@
 session_start();
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/functions.php';
+
 // Auto-setup database on first run
 if (!isset($_SESSION['db_setup'])) {
     setupDatabase();
     $_SESSION['db_setup'] = true;
 }
+
+// Ensure notifications table exists (for existing databases)
+ensureNotificationsTable();
+
 $page = $_GET['page'] ?? 'home';
+
+// Get notification count for admin
+$notification_count = 0;
+if (isAdmin()) {
+    $notification_count = getUnreadNotificationCount();
+}
+
 // HTML header
 ?><!DOCTYPE html>
 <html lang="en">
@@ -28,7 +40,14 @@ $page = $_GET['page'] ?? 'home';
                     <li><a href="?page=browse">Browse Items</a></li>
                     <li><a href="?page=report">Report Item</a></li>
                     <?php if (isAdmin()): ?>
-                        <li><a href="?page=admin">Admin</a></li>
+                        <li>
+                            <a href="?page=admin">
+                                Admin
+                                <?php if ($notification_count > 0): ?>
+                                    <span style="background: #ff6b6b; color: white; border-radius: 50%; padding: 2px 6px; font-size: 0.7rem; margin-left: 5px;"><?php echo $notification_count; ?></span>
+                                <?php endif; ?>
+                            </a>
+                        </li>
                     <?php endif; ?>
                     <li><a href="?page=logout">Logout (<?php echo $_SESSION['username']; ?>)</a></li>
                 <?php else: ?>
